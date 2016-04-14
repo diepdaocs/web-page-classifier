@@ -13,7 +13,7 @@ NOTSET = logging.NOTSET
 
 _LOGGERS = {}
 
-logger_level = DEBUG
+logger_level = INFO
 
 logs_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../logs')
 
