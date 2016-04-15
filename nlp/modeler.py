@@ -10,11 +10,11 @@ from util.utils import get_logger
 
 
 class WebPageTypeModeler(object):
-    def __init__(self, urls, content_getter, model_name):
+    def __init__(self, urls, content_getter, model_file_path):
         self.logger = get_logger(self.__class__.__name__)
         self.urls = urls
         self.content_getter = content_getter
-        self.model_name = model_name
+        self.model_file_path = model_file_path
 
     def _convert_to_df(self, data):
         result = []
@@ -50,7 +50,7 @@ class WebPageTypeModeler(object):
 
         self.logger.info('Start train and create model file...')
         classifier.fit(data_frame['content'].values, data_frame['type'].values)
-        with open('../model/' + self.model_name, 'wb') as f:
+        with open(self.model_file_path, 'wb') as f:
             dill.dump(classifier, f)
 
         self.logger.info('End train and create model file...')

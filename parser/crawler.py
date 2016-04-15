@@ -1,5 +1,6 @@
 from multiprocessing import cpu_count
 from multiprocessing.dummy import Pool
+from datetime import datetime
 
 import requests
 
@@ -23,31 +24,37 @@ class PageCrawler(object):
         pool.terminate()
         return result
 
+logger = get_logger(__name__)
+
 
 def _crawl_page(url):
-    # self.logger.debug('Start crawl %s...' + url)
+    logger.debug('Start crawl %s...' + url)
     result = {
         url: {
             'content': '',
-            'error': False
+            'error': False,
+            'message': ''
         }
     }
     if url:
         try:
-            response = requests.get(url, verify=False)
+            response = requests.get(url, verify=False, timeout=5)
             # raise exception when something error
             if response.status_code == requests.codes.ok:
                 result[url]['content'] = response.content
             else:
-                result[url]['error'] = 'Page not found'
+                result[url]['error'] = True
+                result[url]['message'] = 'Page not found'
 
         except Exception as ex:
-            # self.logger.error('crawl_page error: %s' % ex.message)
-            result[url]['error'] = ex.message  # 'Page not found'
+            logger.error('crawl_page error: %s' % ex.message)
+            result[url]['error'] = True
+            result[url]['message'] = str(ex.message)  # 'Page not found'
     else:
-        result[url]['error'] = 'url is empty'
+        result[url]['error'] = True
+        result[url]['message'] = 'url is empty'
 
-    # self.logger.debug('End crawl %s...' + url)
+    logger.debug('End crawl %s...' + url)
     return result
 
 
@@ -60,10 +67,11 @@ class PageCrawlerWithStorage(object):
         result = {}
         # get crawled pages
         for page in self.storage.find({'_id': {'$in': urls}}):
-            self.logger.debug('Page was crawled: ' + page['_id'])
+            if page.get('crawled_date'):
+                self.logger.debug('Page was crawled: ' + page['_id'])
             result[page['_id']] = page
         # filter crawled page
-        urls = [u for u in urls if u not in result]
+        urls = [u for u in urls if u not in result or not result[u].get('crawled_date')]
 
         if not urls:
             return result
@@ -72,11 +80,19 @@ class PageCrawlerWithStorage(object):
         pool = Pool(cpu_count() * 2)
         pool_results = pool.map(_crawl_page, urls)
         # get results
+        db_data = []
         for r in pool_results:
             for url, page in r.items():
                 page['_id'] = url
-                self.storage.insert(page)
-            result.update(r)
+                page['crawled_date'] = datetime.utcnow()
+                if url in result:
+                    result[url].update(page)
+                else:
+                    result[url] = page
+                db_data.append(page)
 
         pool.terminate()
+        for page in db_data:
+            self.storage.update_one({'_id': page['_id']}, {'$set': page}, True)
+
         return result
