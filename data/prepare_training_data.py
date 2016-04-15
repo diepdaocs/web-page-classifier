@@ -2,9 +2,9 @@ import json
 import random
 import re
 
-from crawler.content_getter import ContentGetter
-from crawler.crawler import PageCrawler
-from crawler.extractor import DragnetPageExtractor
+from parser.content_getter import ContentGetter
+from parser.crawler import PageCrawler
+from parser.extractor import DragnetPageExtractor
 from util.utils import get_logger
 
 logger = get_logger(__name__)

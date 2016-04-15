@@ -1,6 +1,6 @@
-from crawler.content_getter import ContentGetter
-from crawler.crawler import PageCrawler
-from crawler.extractor import DragnetPageExtractor
+from parser.content_getter import ContentGetter
+from parser.crawler import PageCrawler
+from parser.extractor import DragnetPageExtractor
 import dill
 
 from util.utils import get_logger
@@ -19,15 +19,15 @@ class PredictWebPageType(object):
     def load_model(self):
         self.logger.info('Start load model %s...' % self.model_file_path)
         with open(self.model_file_path, 'rb') as f:
-            result = dill.load(f)
+            self.web_page_type_classifier = dill.load(f)
+
+        self.labels = self.web_page_type_classifier.named_steps['clf'].classes_
         self.logger.info('End load model %s...' % self.model_file_path)
-        return result
 
     def predict(self, urls):
         self.logger.info('Start predict url %s...' % urls)
         if not self.web_page_type_classifier:
-            self.web_page_type_classifier = self.load_model()
-            self.labels = self.web_page_type_classifier.named_steps['clf'].classes_
+            self.load_model()
 
         result = []
         # crawl web pages content

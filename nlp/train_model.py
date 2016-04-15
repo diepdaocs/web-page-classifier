@@ -23,7 +23,7 @@ FIELD_CONTENT = 'content'
 FIELD_LABEL = 'label'
 
 CREATE_MODEL = True
-MODEL_FILE_PATH = '../models/160327_webpages_type_classification_model.dill'
+MODEL_FILE_PATH = '../model/160327_webpages_type_classification_model.model'
 
 
 def read_json_file(file_path, label):
