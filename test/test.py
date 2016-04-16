@@ -1,8 +1,9 @@
 import unittest
 
 from parser.crawler import PageCrawlerWithStorage
-from pymongo import MongoClient
 from pprint import pprint
+
+from util.database import get_mg_client
 
 
 class MyTestCase(unittest.TestCase):
@@ -15,7 +16,7 @@ class MyTestCase(unittest.TestCase):
                      'http://thethao.vnexpress.net/photo/hinh-bong-da/co-may-msn-vo-vun-barca-thanh-cuu-vuong-champions-league-3386815.html']
 
     def test_crawler(self):
-        mg_client = MongoClient()
+        mg_client = get_mg_client()
         storage = mg_client.web.page
         crawler = PageCrawlerWithStorage(storage)
         res = crawler.process(self.urls)

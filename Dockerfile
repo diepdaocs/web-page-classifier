@@ -10,4 +10,4 @@ RUN mkdir /code
 WORKDIR /code
 ADD requirements.txt /code/
 RUN pip install -U pip lxml Cython && pip install -r requirements.txt
-ADD . /code/
+

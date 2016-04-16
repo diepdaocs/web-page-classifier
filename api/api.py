@@ -2,7 +2,6 @@ from os import listdir, path, remove
 
 from flask import Flask, request
 from flask_restplus import Api, Resource, fields
-from pymongo import MongoClient
 import time
 
 from data.web_page_type import WebPageType
@@ -12,6 +11,7 @@ from nlp.predict_data import PredictWebPageType
 from parser.content_getter import ContentGetter
 from parser.crawler import PageCrawlerWithStorage, PageCrawler
 from parser.extractor import DragnetPageExtractor, ReadabilityPageExtractor
+from util.database import get_mg_client
 from util.utils import get_logger
 
 logger = get_logger(__name__)
@@ -141,7 +141,7 @@ class PageTypeStorageResource(Resource):
             if not url.startswith('http'):
                 urls[idx] = 'http://' + url
 
-        mg_client = MongoClient()
+        mg_client = get_mg_client()
         storage = mg_client.web.page
         web_page_type = WebPageType(storage)
         web_page_type.update(urls, page_type)
@@ -154,6 +154,7 @@ class PageTypeStorageResource(Resource):
                              'If empty, get all'})
     @api.response(200, 'Success')
     def get(self):
+        """Get list labeled data"""
         result = {
             'error': False,
             'pages': []
@@ -168,7 +169,7 @@ class PageTypeStorageResource(Resource):
             if not url.startswith('http'):
                 urls[idx] = 'http://' + url
 
-        mg_client = MongoClient()
+        mg_client = get_mg_client()
         storage = mg_client.web.page
         web_page_type = WebPageType(storage)
         result['pages'] = web_page_type.search(page_types, urls)
@@ -216,7 +217,7 @@ class PageTypeModelerResource(Resource):
         for idx, url in enumerate(urls):
             if not url.startswith('http'):
                 urls[idx] = 'http://' + url
-        mg_client = MongoClient()
+        mg_client = get_mg_client()
         storage = mg_client.web.page
         content_getter_with_storage = ContentGetter(PageCrawlerWithStorage(storage), s_extractor)
         modeler = WebPageTypeModeler(urls, content_getter_with_storage, path.join(model_loc_dir, model_name))
@@ -312,7 +313,7 @@ class EvaluationWebPageTypeModelResource(Resource):
             if not url.startswith('http'):
                 urls[idx] = 'http://' + url
 
-        mg_client = MongoClient()
+        mg_client = get_mg_client()
         storage = mg_client.web.page
         evaluation = WebPageTypeModelEvaluation(urls, storage, path.join(model_loc_dir, model_name))
         result.update(evaluation.evaluate())
