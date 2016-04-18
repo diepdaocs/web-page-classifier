@@ -10,11 +10,13 @@ from util.utils import get_logger
 
 
 class WebPageTypeModeler(object):
-    def __init__(self, urls, content_getter, model_file_path):
+    def __init__(self, urls, content_getter, model_file_path, min_ngram, max_ngram):
         self.logger = get_logger(self.__class__.__name__)
         self.urls = urls
         self.content_getter = content_getter
         self.model_file_path = model_file_path
+        self.min_ngram = min_ngram
+        self.max_ngram = max_ngram
 
     def _convert_to_df(self, data):
         result = []
@@ -39,12 +41,14 @@ class WebPageTypeModeler(object):
     def train(self):
         pages = self.content_getter.process(self.urls)
         data_frame = self._convert_to_df(pages)
+        if data_frame.empty:
+            return False, 'Empty training data set, remember to label your data firstly.'
         data_frame = data_frame.reindex(np.random.permutation(data_frame.index))
 
         tokenizer = GeneralTokenizer()
 
         classifier = Pipeline([
-            ('vector', TfidfVectorizer(tokenizer=tokenizer.tokenize, ngram_range=(1, 2))),
+            ('vector', TfidfVectorizer(tokenizer=tokenizer.tokenize, ngram_range=(self.min_ngram, self.max_ngram))),
             ('clf', MultinomialNB())
         ])
 
@@ -54,3 +58,4 @@ class WebPageTypeModeler(object):
             dill.dump(classifier, f)
 
         self.logger.info('End train and create model file...')
+        return True, {k: len(v) for k, v in data_frame.groupby('type').groups.items()}

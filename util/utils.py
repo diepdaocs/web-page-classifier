@@ -40,3 +40,9 @@ def get_logger(name, level=logger_level, log_file=os.path.join(logs_dir, '%s.log
 
     _LOGGERS[name] = logger
     return logger
+
+
+def get_unicode(text):
+    if isinstance(text, unicode):
+        return text
+    return unicode(text, encoding='utf-8', errors='ignore')

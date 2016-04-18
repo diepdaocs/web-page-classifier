@@ -4,7 +4,7 @@ from datetime import datetime
 
 import requests
 
-from util.utils import get_logger
+from util.utils import get_logger, get_unicode
 
 
 class PageCrawler(object):
@@ -16,7 +16,7 @@ class PageCrawler(object):
         result = {}
         # use multi thread to crawl pages
         pool = Pool(cpu_count() * 2)
-        pool_results = pool.map(_crawl_page, urls)
+        pool_results = pool.map(self._crawl_page, urls)
         # get results
         for r in pool_results:
             result.update(r)
@@ -24,41 +24,39 @@ class PageCrawler(object):
         pool.terminate()
         return result
 
-logger = get_logger(__name__)
-
-
-def _crawl_page(url):
-    logger.debug('Start crawl %s...' + url)
-    result = {
-        url: {
-            'content': '',
-            'error': False,
-            'message': ''
+    def _crawl_page(self, url):
+        self.logger.debug('Start crawl %s...' + url)
+        result = {
+            url: {
+                'content': '',
+                'error': False,
+                'message': ''
+            }
         }
-    }
-    if url:
-        try:
-            response = requests.get(url, verify=False, timeout=5)
-            # raise exception when something error
-            if response.status_code == requests.codes.ok:
-                result[url]['content'] = response.content
-            else:
+        if url:
+            try:
+                response = requests.get(url, verify=False, timeout=5)
+                # raise exception when something error
+                if response.status_code == requests.codes.ok:
+                    result[url]['content'] = response.content
+                else:
+                    result[url]['error'] = True
+                    result[url]['message'] = 'Page not found'
+
+            except Exception as ex:
+                self.logger.error('crawl_page error: %s' % ex.message)
                 result[url]['error'] = True
-                result[url]['message'] = 'Page not found'
-
-        except Exception as ex:
-            logger.error('crawl_page error: %s' % ex.message)
+                result[url]['message'] = str(ex.message)  # 'Page not found'
+        else:
             result[url]['error'] = True
-            result[url]['message'] = str(ex.message)  # 'Page not found'
-    else:
-        result[url]['error'] = True
-        result[url]['message'] = 'url is empty'
+            result[url]['message'] = 'url is empty'
 
-    logger.debug('End crawl %s...' + url)
-    return result
+        self.logger.debug('End crawl %s...' + url)
+        return result
 
 
 class PageCrawlerWithStorage(object):
+
     def __init__(self, storage):
         self.logger = get_logger(self.__class__.__name__)
         self.storage = storage
@@ -69,30 +67,61 @@ class PageCrawlerWithStorage(object):
         for page in self.storage.find({'_id': {'$in': urls}}):
             if page.get('crawled_date'):
                 self.logger.debug('Page was crawled: ' + page['_id'])
-            result[page['_id']] = page
+                result[page['_id']] = page
         # filter crawled page
-        urls = [u for u in urls if u not in result or not result[u].get('crawled_date')]
+        urls = [u for u in urls if u not in result]
 
         if not urls:
+            self.logger.info('All urls has been crawled')
             return result
 
         # use multi thread to crawl pages
         pool = Pool(cpu_count() * 2)
-        pool_results = pool.map(_crawl_page, urls)
+        self.logger.debug('Have to crawl these urls: %s' % urls)
+        pool_results = pool.map(self._crawl_page, urls)
         # get results
-        db_data = []
         for r in pool_results:
-            for url, page in r.items():
-                page['_id'] = url
-                page['crawled_date'] = datetime.utcnow()
-                if url in result:
-                    result[url].update(page)
-                else:
-                    result[url] = page
-                db_data.append(page)
+            result.update(r)
 
         pool.terminate()
-        for page in db_data:
-            self.storage.update_one({'_id': page['_id']}, {'$set': page}, True)
-
         return result
+
+    def _crawl_page(self, url):
+        self.logger.debug('Start crawl %s...' + url)
+        result = {
+            'content': '',
+            'error': False,
+            'message': ''
+        }
+        if url:
+            # check database
+            page = self.storage.find_one({'_id': url})
+            if page.get('crawled_date'):
+                self.logger.debug('Page was crawled (2nd check): ' + page['_id'])
+                return {url: self.storage.find_one({'_id': url})}
+
+            try:
+                response = requests.get(url, verify=False, timeout=5)
+                # raise exception when something error
+                if response.status_code == requests.codes.ok:
+                    result['content'] = response.content
+                else:
+                    result['error'] = True
+                    result['message'] = 'Page not found'
+
+            except Exception as ex:
+                self.logger.error('crawl_page error: %s' % ex.message)
+                result['error'] = True
+                result['message'] = str(ex.message)  # 'Page not found'
+        else:
+            result['error'] = True
+            result['message'] = 'url is empty'
+
+        # storage to database
+        result['_id'] = url
+        result['crawled_date'] = datetime.utcnow()
+        result['content'] = get_unicode(result['content'])
+        self.logger.info('Update crawled page to db...')
+        self.storage.update_one({'_id': url}, {'$set': result}, True)
+        self.logger.debug('End crawl %s...' + url)
+        return {url: self.storage.find_one({'_id': url})}

@@ -1,4 +1,4 @@
-from util.utils import get_logger
+from util.utils import get_logger, get_unicode
 
 
 class ContentGetter(object):
@@ -10,13 +10,10 @@ class ContentGetter(object):
 
     def process(self, urls):
         # crawl pages
-        self.logger.debug('Start crawl urls: %s' % urls)
         result = self.crawler.process(urls)
-        self.logger.debug('End crawl urls: %s' % urls)
         # extract content from pages
         self.logger.debug('Start extract pages: %s' % urls)
         for url, page in result.items():
-            page['content'] = self.extractor.process(page['content'])
-
+            page['content'] = ', '.join(c for c in [url, self.extractor.process(page['content'])] if c)
         self.logger.debug('End extract pages: %s' % urls)
         return result

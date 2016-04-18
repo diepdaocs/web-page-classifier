@@ -1,30 +1,42 @@
 import dill
 from os import path
 
+from util.database import get_redis_conn
 from util.utils import get_logger
 
 
 class PredictWebPageType(object):
-    def __init__(self, model_file_path, content_getter):
+    def __init__(self, model_loc_dir, model_name, content_getter):
         self.logger = get_logger(self.__class__.__name__)
-        self.model_file_path = model_file_path
         self.content_getter = content_getter
         self.web_page_type_classifier = None
         self.labels = None
-        self.model_name = None
+        self.model_name = model_name
+        self.model_name_key = 'current_page_type_classifier_model'
+        self.model_loc_dir = model_loc_dir
+        self.kv_storage = get_redis_conn()
+        self.kv_storage.set(self.model_name_key, self.model_name)
+
+    def get_current_model(self):
+        cur_model = self.kv_storage.get(self.model_name_key)
+        if not cur_model:
+            self.kv_storage.set(self.model_name_key, self.model_name)
+        return cur_model
 
     def load_model(self):
-        self.logger.info('Start load model %s...' % self.model_file_path)
-        with open(self.model_file_path, 'rb') as f:
+        self.logger.info('Start load model %s...' % self.model_name)
+        with open(path.join(self.model_loc_dir, self.model_name), 'rb') as f:
             self.web_page_type_classifier = dill.load(f)
+            self.kv_storage.set(self.model_name_key, self.model_name)
 
         self.labels = self.web_page_type_classifier.named_steps['clf'].classes_
-        self.model_name = path.basename(self.model_file_path)
-        self.logger.info('End load model %s...' % self.model_file_path)
+        self.logger.info('End load model %s...' % self.model_name)
 
     def predict(self, urls):
         self.logger.info('Start predict url %s...' % urls)
-        if not self.web_page_type_classifier:
+        current_model = self.get_current_model()
+        if not self.web_page_type_classifier or self.model_name != current_model:
+            self.model_name = current_model
             self.load_model()
 
         result = []

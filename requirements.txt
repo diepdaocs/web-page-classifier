@@ -16,3 +16,4 @@ dill
 #pandas
 pymongo
 readability-lxml
+redis
