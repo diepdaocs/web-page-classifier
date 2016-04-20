@@ -39,7 +39,8 @@ class WebPageType(object):
         for page in self.storage.find(self._build_filter(page_types, urls)):
             result.append({
                 'url': page['_id'],
-                'type': page.get('type', '')
+                'type': page.get('type', ''),
+                'crawled_date': str(page.get('crawled_date', 'Not yet'))
             })
         return result
 

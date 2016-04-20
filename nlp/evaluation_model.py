@@ -1,8 +1,4 @@
 from sklearn.metrics import classification_report, precision_recall_fscore_support
-from nlp.predict_data import PredictWebPageType
-from parser.content_getter import ContentGetter
-from parser.crawler import PageCrawlerWithStorage
-from parser.extractor import DragnetPageExtractor
 from util.utils import get_logger
 import pandas as pd
 
@@ -10,14 +6,11 @@ __author__ = 'diepdt'
 
 
 class WebPageTypeModelEvaluation(object):
-    def __init__(self, urls, storage, model_loc_dir, model_name):
+    def __init__(self, urls, storage, classifier):
         self.logger = get_logger(self.__class__.__name__)
         self.urls = urls
         self.storage = storage
-        crawler = PageCrawlerWithStorage(storage)
-        extractor = DragnetPageExtractor()
-        content_getter = ContentGetter(crawler=crawler, extractor=extractor)
-        self.classifier = PredictWebPageType(model_loc_dir, model_name, content_getter)
+        self.classifier = classifier
 
     def load_test_data(self):
         result = []
@@ -45,7 +38,7 @@ class WebPageTypeModelEvaluation(object):
 
         y_true = data['type'].values
         y_pred = data['predict'].values
-        prf = precision_recall_fscore_support(y_true, y_pred, average='weighted', pos_label=self.classifier.labels[0])
+        prf = precision_recall_fscore_support(y_true, y_pred, average='weighted', pos_label=None)
         result = {
             'summary': classification_report(y_true, y_pred),
             'precision': round(prf[0], 2),

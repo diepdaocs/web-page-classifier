@@ -1,9 +1,18 @@
-version: '2'
-services:
-  web:
-    image: diepdao12892/python-machine-learning-lib:latest
-    command: python main.py #gunicorn -k tornado -w 2 -b 0.0.0.0:1999 main:app --max-requests 10000
-    volumes:
-      - .:/code
-    ports:
-      - "1999:1999"
+app:
+  image: diepdao12892/python-machine-learning-lib:latest
+  environment:
+    - PYTHONPATH=/code
+  command: gunicorn -k tornado -w 2 -b 0.0.0.0:1999 main:app --max-requests 10000
+  volumes:
+    - .:/code
+  ports:
+    - "1999:1999"
+  links:
+    - storage
+    - cache
+
+storage:
+  image: mongo
+
+cache:
+  image: redis

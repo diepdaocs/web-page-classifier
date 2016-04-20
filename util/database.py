@@ -7,8 +7,8 @@ prod_server = '159.203.170.25'
 
 
 def get_mg_client():
-    return MongoClient(host=dev_server)
+    return MongoClient(host='storage')
 
 
 def get_redis_conn():
-    return redis.Redis(host=dev_server)
+    return redis.Redis(host='cache')

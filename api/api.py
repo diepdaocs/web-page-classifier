@@ -12,7 +12,7 @@ from parser.content_getter import ContentGetter
 from parser.crawler import PageCrawlerWithStorage, PageCrawler
 from parser.extractor import DragnetPageExtractor, ReadabilityPageExtractor, GoosePageExtractor, \
     GooseDragnetPageExtractor
-from util.database import get_mg_client
+from util.database import get_mg_client, get_redis_conn
 from util.utils import get_logger
 
 logger = get_logger(__name__)
@@ -27,6 +27,10 @@ crawler = PageCrawler()
 extractor = DragnetPageExtractor()
 content_getter = ContentGetter(crawler=crawler, extractor=extractor)
 classifier = PredictWebPageType(model_loc_dir, default_model_name, content_getter)
+
+# set cur model to redis
+kv_storage = get_redis_conn()
+kv_storage.set(classifier.model_name_key, default_model_name)
 
 list_extractor = ['dragnet', 'readability', 'goose', 'goose_dragnet']
 
@@ -192,12 +196,12 @@ class PageTypeStorageResource(Resource):
         result['pages'] = pages
         group = {}
         for page in pages:
-            if page['type'] in group:
+            if page['type'] not in group:
                 group[page['type']] = 1
             else:
                 group[page['type']] += 1
 
-        result['total'] = len(web_page_type)
+        result['total'] = len(pages)
         result['summary'] = group
         return result
 
@@ -362,7 +366,8 @@ class ReloadPageTypeModelResource(Resource):
         list_model = get_list_model()
         if not model_name or model_name not in list_model:
             result['error'] = True
-            result['message'] = 'Model name is invalid, please select one of these models: %s' % ', '.join(list_model)
+            result['message'] = 'Model name is invalid, please select one of below models'
+            result['models'] = list_model
             return result
 
         global classifier
@@ -370,9 +375,14 @@ class ReloadPageTypeModelResource(Resource):
             result['message'] = 'The model %s has been loaded already' % model_name
             return result
 
+        # reload model
         classifier.model_name = model_name
         classifier.load_model()
-        result['message'] = 'The model %s has been reloaded successfully' % model_name
+        # set cur model to redis
+        global kv_storage
+        kv_storage.set(classifier.model_name_key, model_name)
+
+        result['message'] = 'The model %s has been loaded successfully' % model_name
         return result
 
 
@@ -383,7 +393,7 @@ class CurrentPageTypeModelResource(Resource):
     def get(self):
         """Get currently used model"""
         cur_model = classifier.get_current_model()
-        result = {'error': False, 'message': 'Currently used model: %s' % cur_model}
+        result = {'error': False, 'message': 'Currently used model: %s' % cur_model, 'model_name': cur_model}
         return result
 
 
@@ -391,6 +401,8 @@ class CurrentPageTypeModelResource(Resource):
 class EvaluationWebPageTypeModelResource(Resource):
     """Evaluate page type classifier models"""
     @api.doc(params={'model_name': 'The model name to be evaluated',
+                     'extractor': 'The name of extractor to be used, currently support `%s`, default `%s`' %
+                                  (', '.join(list_extractor), list_extractor[0]),
                      'urls': 'The urls to be classified (If many urls, separate by comma). '
                              'Remember to upload this labeled urls (ecommerce, news/blog,..) firstly'})
     @api.response(200, 'Success')
@@ -407,7 +419,8 @@ class EvaluationWebPageTypeModelResource(Resource):
         list_model = get_list_model()
         if not model_name or model_name not in list_model:
             result['error'] = True
-            result['message'] = 'Model name is invalid, please select one of these models: %s' % ', '.join(list_model)
+            result['message'] = 'Model name is invalid, please select one of below models'
+            result['models'] = list_model
             return result
 
         # append urls that missing schema
@@ -421,8 +434,26 @@ class EvaluationWebPageTypeModelResource(Resource):
             result['message'] = 'Please label all urls firstly, unlabeled data: %s' % ', '.join(unlabeled_data)
             return result
 
+        extractor_name = request.values.get('extractor', list_extractor[0])
+        s_extractor = get_extractor(extractor_name)
+        if not extractor:
+            result['error'] = True
+            result['message'] = 'The extractor name %s does not support yet' % extractor_name
+            return result
+
         mg_client = get_mg_client()
         storage = mg_client.web.page
-        evaluation = WebPageTypeModelEvaluation(urls, storage, model_loc_dir, model_name)
+        s_crawler = PageCrawlerWithStorage(storage)
+        s_content_getter = ContentGetter(crawler=s_crawler, extractor=s_extractor)
+        s_classifier = PredictWebPageType(model_loc_dir, model_name, s_content_getter, evaluate_mode=True)
+        if classifier.get_current_model() != model_name:
+            s_classifier.web_page_type_classifier = None
+        else:
+            s_classifier.web_page_type_classifier = classifier.web_page_type_classifier
+            s_classifier.labels = classifier.web_page_type_classifier.named_steps['clf'].classes_
+
+        evaluation = WebPageTypeModelEvaluation(urls, storage, s_classifier)
         result.update(evaluation.evaluate())
+        result['model_name'] = model_name
+        mg_client.close()
         return result

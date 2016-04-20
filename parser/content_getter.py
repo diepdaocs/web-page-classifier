@@ -1,4 +1,4 @@
-from util.utils import get_logger, get_unicode
+from util.utils import get_logger
 
 
 class ContentGetter(object):
