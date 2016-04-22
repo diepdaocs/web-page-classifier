@@ -8,6 +8,7 @@ from data.web_page_type import WebPageType
 from nlp.evaluation_model import WebPageTypeModelEvaluation
 from nlp.modeler import WebPageTypeModeler
 from nlp.predict_data import PredictWebPageType
+from nlp.tokenizer import GeneralTokenizer
 from parser.content_getter import ContentGetter
 from parser.crawler import PageCrawlerWithStorage, PageCrawler
 from parser.extractor import DragnetPageExtractor, ReadabilityPageExtractor, GoosePageExtractor, \
@@ -114,7 +115,7 @@ class PageTypeResource(Resource):
         s_extractor = get_extractor(extractor_name)
         if not extractor:
             result['error'] = True
-            result['message'] = 'The extractor name %s does not support yet' % extractor_name
+            result['message'] = "The extractor name '%s' does not support yet" % extractor_name
             return result
 
         # append urls that missing schema
@@ -126,6 +127,123 @@ class PageTypeResource(Resource):
         classifier.content_getter = s_content_getter
         result['pages'] = classifier.predict(urls)
         result['model_name'] = classifier.model_name
+        return result
+
+
+@ns_data.route('/crawl')
+class CrawlerStorageResource(Resource):
+    """Post urls for crawling and save to database"""
+    @api.doc(params={'urls': 'The urls for crawling (If many urls, separate by comma)'})
+    @api.response(200, 'Success')
+    def post(self):
+        """Post urls for crawling and save to database"""
+        result = {
+            'error': False,
+            'message': ''
+        }
+        urls = request.values.get('urls', '')
+
+        urls = [u.strip().lower() for u in urls.split(',') if u]
+        if not urls:
+            result['error'] = True
+            result['message'] = 'Urls is empty'
+            return result
+
+        # append urls that missing schema
+        for idx, url in enumerate(urls):
+            if not url.startswith('http'):
+                urls[idx] = 'http://' + url
+
+        mg_client = get_mg_client()
+        storage = mg_client.web.page
+        s_crawler = PageCrawlerWithStorage(storage)
+        pages = s_crawler.process(urls)
+        mg_client.close()
+        result['message'] = '%s was crawled successfully' % len(pages)
+        return result
+
+
+@ns_data.route('/extract')
+class ExtractorStorageResource(Resource):
+    """Post urls for extracting content (note: do not save the result)"""
+    @api.doc(params={'urls': 'The urls for crawling (If many urls, separate by comma)',
+                     'extractor': 'The name of extractor to be used, currently support `%s`, default `%s`' %
+                                  (', '.join(list_extractor), list_extractor[0])})
+    @api.response(200, 'Success')
+    def post(self):
+        """Post urls for extracting content (note: do not save the result)"""
+        result = {
+            'error': False,
+            'message': ''
+        }
+        urls = request.values.get('urls', '')
+
+        urls = [u.strip().lower() for u in urls.split(',') if u]
+        if not urls:
+            result['error'] = True
+            result['message'] = 'Urls is empty'
+            return result
+
+        extractor_name = request.values.get('extractor', list_extractor[0])
+        s_extractor = get_extractor(extractor_name)
+        if not extractor:
+            result['error'] = True
+            result['message'] = "The extractor name '%s' does not support yet" % extractor_name
+            return result
+
+        # append urls that missing schema
+        for idx, url in enumerate(urls):
+            if not url.startswith('http'):
+                urls[idx] = 'http://' + url
+
+        s_crawler = PageCrawler()
+        s_content_getter = ContentGetter(crawler=s_crawler, extractor=s_extractor)
+        result['pages'] = s_content_getter.process(urls)
+        return result
+
+
+list_tokenizer = ['general']
+
+
+def get_tokenizer(name):
+    if name == 'general':
+        return GeneralTokenizer()
+    return None
+
+
+@ns_data.route('/tokenize')
+class TokenizerStorageResource(Resource):
+    """Post urls for extracting content (note: do not save the result)"""
+    @api.doc(params={'text': 'Text to be tokenize',
+                     'tokenizer': 'The tokenizer name to be used, currently support `%s`, default is `%s`'
+                                  % (', '.join(list_tokenizer), list_tokenizer[0])})
+    @api.response(200, 'Success')
+    def post(self):
+        """Post urls for extracting content (note: do not save the result)"""
+        result = {
+            'error': False,
+            'message': ''
+        }
+        text = request.values.get('text', '')
+        if not text:
+            result['error'] = True
+            result['message'] = 'Text is empty'
+            return result
+
+        tokenizer_name = request.values.get('tokenizer', list_tokenizer[0])
+        if not tokenizer_name:
+            result['error'] = True
+            result['message'] = 'Tokenizer is empty'
+            return result
+
+        tokenizer = get_tokenizer(tokenizer_name)
+        if not tokenizer:
+            result['error'] = True
+            result['message'] = "Tokenizer name '%s' is not supported, please choose one of these tokenizer name: %s" \
+                                % (tokenizer_name, ', '.join(list_tokenizer))
+            return result
+
+        result['words'] = tokenizer.tokenize(text)
         return result
 
 
@@ -248,6 +366,9 @@ class PageTypeModelerResource(Resource):
                              'Remember to upload this labeled urls (ecommerce, news/blog,..) firstly',
                      'extractor': 'The name of extractor to be used, currently support `%s`, default `%s`' %
                                   (', '.join(list_extractor), list_extractor[0]),
+                     'tokenizer': 'The tokenizer name to be used in both training and classify new data, '
+                                  'currently support `%s`, default is `%s`'
+                                  % (', '.join(list_tokenizer), list_tokenizer[0]),
                      'model_name': 'The model name, default `%s_page_type_classifier.model`' % date_time_format,
                      'min_ngram': 'Word minimum ngram, default is 1',
                      'max_ngram': 'Word maximum ngram, default is 2'})
@@ -269,14 +390,27 @@ class PageTypeModelerResource(Resource):
         s_extractor = get_extractor(extractor_name)
         if not extractor:
             result['error'] = True
-            result['message'] = 'The extractor name %s does not support yet' % extractor_name
+            result['message'] = "The extractor name '%s' does not support yet" % extractor_name
             return result
 
         model_name = request.values.get('model_name', time.strftime(self.date_time_format) +
                                         '_page_type_classifier.model')
         if model_name in get_list_model():
             result['error'] = True
-            result['message'] = 'The model name %s is duplicated, please select another model name.' % model_name
+            result['message'] = "The model name '%s' is duplicated, please select another model name." % model_name
+            return result
+
+        tokenizer_name = request.values.get('tokenizer', list_tokenizer[0])
+        if not tokenizer_name:
+            result['error'] = True
+            result['message'] = 'Tokenizer is empty'
+            return result
+
+        tokenizer = get_tokenizer(tokenizer_name)
+        if not tokenizer:
+            result['error'] = True
+            result['message'] = "Tokenizer name '%s' is not supported, please choose one of these tokenizer name: %s" \
+                                % (tokenizer_name, ', '.join(list_tokenizer))
             return result
 
         min_ngram = request.values.get('min_ngram', '1')
@@ -304,7 +438,7 @@ class PageTypeModelerResource(Resource):
         mg_client = get_mg_client()
         storage = mg_client.web.page
         content_getter_with_storage = ContentGetter(PageCrawlerWithStorage(storage), s_extractor)
-        modeler = WebPageTypeModeler(urls, content_getter_with_storage, path.join(model_loc_dir, model_name),
+        modeler = WebPageTypeModeler(urls, content_getter_with_storage, path.join(model_loc_dir, model_name), tokenizer,
                                      min_ngram, max_ngram)
         ok, msg = modeler.train()
         mg_client.close()
@@ -438,7 +572,7 @@ class EvaluationWebPageTypeModelResource(Resource):
         s_extractor = get_extractor(extractor_name)
         if not extractor:
             result['error'] = True
-            result['message'] = 'The extractor name %s does not support yet' % extractor_name
+            result['message'] = "The extractor name '%s' does not support yet" % extractor_name
             return result
 
         mg_client = get_mg_client()

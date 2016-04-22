@@ -7,12 +7,12 @@ app:
     - .:/code
   ports:
     - "1999:1999"
-  links:
-    - storage
-    - cache
+#  links:
+#    - storage
+#    - cache
 
-storage:
-  image: mongo
-
-cache:
-  image: redis
+#storage:
+#  image: mongo
+#
+#cache:
+#  image: redis

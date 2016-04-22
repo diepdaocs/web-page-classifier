@@ -15,7 +15,7 @@ _LOGGERS = {}
 
 logger_level = DEBUG
 
-logs_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../logs')
+logs_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../log')
 
 if not os.path.exists(logs_dir):
     os.makedirs(logs_dir)
