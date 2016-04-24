@@ -1,3 +1,5 @@
+import random
+
 import dill
 import pandas as pd
 import numpy as np
@@ -5,7 +7,6 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.pipeline import Pipeline
 
-from nlp.tokenizer import GeneralTokenizer
 from util.utils import get_logger
 
 
@@ -40,6 +41,7 @@ class WebPageTypeModeler(object):
         return df
 
     def train(self):
+        random.shuffle(self.urls)
         pages = self.content_getter.process(self.urls)
         data_frame = self._convert_to_df(pages)
         if data_frame.empty:

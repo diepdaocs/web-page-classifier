@@ -1,3 +1,5 @@
+from bson.son import SON
+
 from util.utils import get_logger
 
 
@@ -34,15 +36,32 @@ class WebPageType(object):
 
         return q_filter
 
-    def search(self, page_types, urls):
+    def search(self, page_types, urls, limit, offset):
         result = []
-        for page in self.storage.find(self._build_filter(page_types, urls)):
+        q_filter = self._build_filter(page_types, urls)
+        for page in self.storage.find(q_filter)\
+                .sort('_id', 1)\
+                .skip(offset)\
+                .limit(limit):
             result.append({
                 'url': page['_id'],
                 'type': page.get('type', ''),
-                'crawled_date': str(page.get('crawled_date', 'Not yet'))
+                'crawled_date': str(page.get('crawled_date', "Haven't crawled yet"))
             })
-        return result
+        agg_pipeline = [
+            {'$match': q_filter},
+            {'$group': {'_id': '$type', 'count': {'$sum': 1}}},
+            {'$sort': SON([('count', -1), ('_id', 1)])}
+        ]
+        agg = self.storage.aggregate(agg_pipeline)
+        type_count = []
+        total = 0
+        for a in agg:
+            count = a['count']
+            type_count.append({'type': a['_id'] if a['_id'] else '', 'count': count})
+            total += count
+
+        return result, type_count, total
 
     def delete(self, page_types, urls):
         result = self.storage.delete_many(self._build_filter(page_types, urls))
@@ -58,7 +77,5 @@ class WebPageType(object):
         ret = [u for u in urls if u not in existed_url]
         self.logger.debug('Unlabeled data: %s' % ret)
         return ret
-
-
 
 

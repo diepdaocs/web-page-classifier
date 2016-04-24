@@ -1,4 +1,4 @@
-from sklearn.metrics import classification_report, precision_recall_fscore_support
+from sklearn.metrics import classification_report, precision_recall_fscore_support, accuracy_score
 from util.utils import get_logger
 import pandas as pd
 
@@ -44,6 +44,7 @@ class WebPageTypeModelEvaluation(object):
             'precision': round(prf[0], 2),
             'recall': round(prf[1], 2),
             'f_measure': round(prf[2], 2),
+            'accuracy': round(accuracy_score(y_true, y_pred), 2),
             'data': {k: len(v) for k, v in data.groupby('type').groups.items()}
         }
         return result

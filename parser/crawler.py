@@ -95,6 +95,7 @@ class PageCrawlerWithStorage(object):
             for r in pool_results:
                 result.update(r)
 
+            pool.close()
             pool.terminate()
         else:
             for url in urls:
@@ -138,6 +139,6 @@ class PageCrawlerWithStorage(object):
         result['crawled_date'] = datetime.utcnow()
         result['content'] = get_unicode(result['content'])
         self.logger.info('Update crawled page to db...')
-        self.storage.update_one({'_id': url}, {'$set': result}, True)
+        self.storage.update_one({'_id': url}, {'$set': result}, upsert=True)
         self.logger.debug('End crawl %s...' % url)
         return {url: self.storage.find_one({'_id': url})}

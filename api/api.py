@@ -22,7 +22,7 @@ app = Flask(__name__)
 api = Api(app, doc='/doc/', version='1.0', title='Web pages type classification')
 
 model_loc_dir = path.dirname(path.realpath(__file__)) + '/../model'
-default_model_name = '160327_webpages_type_classification_model.model'
+default_model_name = '6k_ecommerce_news_blog_urls_dragnet_extractor.model'
 default_model_file_path = path.join(model_loc_dir, default_model_name)
 crawler = PageCrawler()
 extractor = DragnetPageExtractor()
@@ -33,7 +33,7 @@ classifier = PredictWebPageType(model_loc_dir, default_model_name, content_gette
 kv_storage = get_redis_conn()
 kv_storage.set(classifier.model_name_key, default_model_name)
 
-list_extractor = ['dragnet', 'readability', 'goose', 'goose_dragnet']
+list_extractor = ['dragnet', 'readability', 'goose']
 
 
 def get_extractor(name):
@@ -56,8 +56,8 @@ def check_unlabeled_data(urls):
     mg_client.close()
     return web_page_type.check_unlabeled_data(urls)
 
-ns_type = api.namespace('type', 'Classify web page')
-ns_data = api.namespace('data', 'Label training data')
+ns_type = api.namespace('type', 'Classify new web page')
+ns_data = api.namespace('data', 'Manage data')
 ns_model = api.namespace('model', 'Manage models')
 
 page_type_response = api.model('page_type_response', {
@@ -207,7 +207,7 @@ list_tokenizer = ['general']
 
 def get_tokenizer(name):
     if name == 'general':
-        return GeneralTokenizer()
+        return GeneralTokenizer().tokenize
     return None
 
 
@@ -219,7 +219,7 @@ class TokenizerStorageResource(Resource):
                                   % (', '.join(list_tokenizer), list_tokenizer[0])})
     @api.response(200, 'Success')
     def post(self):
-        """Post urls for extracting content (note: do not save the result)"""
+        """Post urls for extracting content and tokenize into words (note: do not save the result)"""
         result = {
             'error': False,
             'message': ''
@@ -288,16 +288,33 @@ class PageTypeStorageResource(Resource):
 
     @api.doc(params={'urls': 'The urls to be filtered (If many urls, separate by comma). If empty, get all',
                      'type': 'The web page type (ecommerce, news/blog,...). If many, separate by comma. '
-                             'If empty, get all'})
+                             'If empty, get all',
+                     'limit': 'Limit number of urls in returned data, default is 50',
+                     'offset': 'The offset that want to get the urls, default is 0'})
     @api.response(200, 'Success')
     def get(self):
         """Get list labeled data"""
         result = {
             'error': False,
+            'message': '',
             'pages': []
         }
         urls = request.values.get('urls', '')
         page_types = request.values.get('type', '')
+        limit = request.values.get('limit', '50')
+        offset = request.values.get('offset', '0')
+
+        try:
+            limit = int(limit)
+        except ValueError as ex:
+            result['error'] = True
+            result['message'] = 'limit must be in integer'
+
+        try:
+            offset = int(offset)
+        except ValueError as ex:
+            result['error'] = True
+            result['message'] = 'offset must be in integer'
 
         page_types = [t.strip().lower() for t in page_types.split(',')] if page_types else []
         urls = [u.strip().lower() for u in urls.split(',') if u] if urls else []
@@ -309,18 +326,11 @@ class PageTypeStorageResource(Resource):
         mg_client = get_mg_client()
         storage = mg_client.web.page
         web_page_type = WebPageType(storage)
-        pages = web_page_type.search(page_types, urls)
+        pages, type_count, total = web_page_type.search(page_types, urls, limit, offset)
         mg_client.close()
         result['pages'] = pages
-        group = {}
-        for page in pages:
-            if page['type'] not in group:
-                group[page['type']] = 1
-            else:
-                group[page['type']] += 1
-
-        result['total'] = len(pages)
-        result['summary'] = group
+        result['type_count'] = type_count
+        result['total'] = total
         return result
 
     @api.doc(params={'urls': 'The urls to be filtered (If many urls, separate by comma).',

@@ -1,10 +1,13 @@
+import re
 from multiprocessing import Pool, cpu_count
 
+from bs4 import BeautifulSoup
 from dragnet import content_comments_extractor
 from readability.readability import Document
 from goose import Goose
 from abc import ABCMeta, abstractmethod
 
+from util.timeout import timeout, TimeoutError
 from util.utils import get_logger, get_unicode
 
 logger = get_logger(__name__)
@@ -31,13 +34,14 @@ class PageExtractor(object):
             elif isinstance(self, GooseDragnetPageExtractor):
                 func = goose_dragnet_extractor
             # use multi thread to crawl pages
-            pool = Pool(cpu_count() * 2)
-            data = [(url, page.get('content', '')) for url, page in pages.items() if page.get('content')]
+            pool = Pool(cpu_count())
+            data = [(get_unicode(url), get_unicode(page.get('content', ''))) for url, page in pages.items() if page.get('content')]
             pool_results = pool.map(func, data)
             # get results
             for r in pool_results:
                 pages[r[0]]['content'] = r[1]
 
+            pool.close()
             pool.terminate()
             for url, page in pages.items():
                 if not page['content']:
@@ -59,7 +63,33 @@ class PageExtractor(object):
         pass
 
 
+def get_soup_meta(soup, name):
+    metas = soup.findAll('meta')
+    for meta in metas:
+        element_name = str(meta.get('name'))
+        if not element_name:
+            element_name = str(meta.get('property'))
+        if re.findall(name, element_name, re.IGNORECASE):
+            return get_unicode(meta.get('content', ''))
+
+    return u''
+
+
+def get_common_info(raw_html):
+    try:
+        soup = BeautifulSoup(raw_html, 'lxml')
+        title = soup.title.string if soup.title else u''
+        title = get_unicode(title) if title else u''
+        description = get_soup_meta(soup, 'description')
+        keywords = get_soup_meta(soup, 'keywords')
+    except Exception as ex:
+        return []
+
+    return [e for e in [title, description, keywords] if e]
+
+
 def dragnet_extractor((url, raw_content)):
+    logger.debug('Start dragnet_extractor: %s' % url)
     content = ''
     try:
         content = content_comments_extractor.analyze(raw_content)
@@ -67,7 +97,15 @@ def dragnet_extractor((url, raw_content)):
         logger.error('dragnet extract page content and comment error: %s' % ex)
         logger.error('url: %s' % url)
 
-    result = ', '.join(c for c in [get_unicode(content)] if c)
+    result = ''
+    try:
+        elements = get_common_info(raw_content)
+        elements.append(get_unicode(content))
+        result = ', '.join(get_unicode(c) for c in elements if c)
+    except Exception as ex:
+        logger.error('Unicode issue: %s' % ex.message)
+
+    logger.debug('End dragnet_extractor: %s' % url)
     return url, result
 
 
@@ -81,15 +119,20 @@ class DragnetPageExtractor(PageExtractor):
 
 
 def readability_extractor((url, raw_content)):
-    result = ''
+    logger.debug('Start readability_extractor: %s' % url)
+    content = ''
     try:
         doc = Document(raw_content)
-        result = ', '.join(c for c in [get_unicode(doc.title()), get_unicode(doc.summary())] if c)
+        content = doc.summary()
     except Exception as ex:
         logger.error('readability extract_page_content error: %s' % ex)
         logger.error('url: %s' % url)
 
-    return url, result
+    elements = get_common_info(raw_content)
+    elements.append(get_unicode(content))
+    result = ', '.join(c for c in elements if c)
+    logger.debug('End readability_extractor: %s' % url)
+    return result
 
 
 class ReadabilityPageExtractor(PageExtractor):
@@ -120,19 +163,31 @@ def get_goose_content(url, doc, name):
     return result
 
 
+@timeout(seconds=5)
+def get_goose_doc(raw_content):
+    return Goose().extract(raw_html=raw_content)
+
+
 def goose_extractor((url, raw_content)):
+    logger.debug('Start goose_extractor: %s' % url)
     result = ''
     try:
-        doc = Goose().extract(raw_html=raw_content)
-        title = get_goose_content(url, doc, 'title')
-        meta_description = get_goose_content(url, doc, 'meta_description')
-        meta_keywords = get_goose_content(url, doc, 'meta_keywords')
-        cleaned_text = get_goose_content(url, doc, 'cleaned_text')
-        result = ', '.join(c for c in [title, meta_description, meta_keywords, cleaned_text] if c)
+        if raw_content and raw_content.strip():
+            try:
+                doc = get_goose_doc(raw_content)
+                cleaned_text = get_goose_content(url, doc, 'cleaned_text')
+                elements = get_common_info(raw_content)
+                elements.append(get_unicode(cleaned_text))
+                result = ', '.join(c for c in elements if c)
+            except TimeoutError as ex:
+                logger.error('get_goose_doc error: %s' % ex.message)
+                logger.error('Url: %s' % url)
+
     except Exception as ex:
-        logger.error('goose extract_page_content error: %s' % ex)
+        logger.error('goose extract_page_content timout error: %s' % ex.message)
         logger.error('url: %s' % url)
 
+    logger.debug('End goose_extractor: %s' % url)
     return url, result
 
 
@@ -140,13 +195,13 @@ class GoosePageExtractor(PageExtractor):
 
     def __init__(self):
         super(GoosePageExtractor, self).__init__()
-        self.goose = Goose()
 
     def extract(self, (url, raw_content)):
         return goose_extractor((url, raw_content))
 
 
 def goose_dragnet_extractor((url, raw_content)):
+    logger.debug('Start goose_dragnet_extractor: %s' % url)
     content = ''
     try:
         content = content_comments_extractor.analyze(raw_content)
@@ -155,19 +210,26 @@ def goose_dragnet_extractor((url, raw_content)):
 
     meta_text = ''
     try:
-        doc = Goose().extract(raw_html=raw_content)
-        title = get_goose_content(url, doc, 'title')
-        meta_description = get_goose_content(url, doc, 'meta_description')
-        meta_keywords = get_goose_content(url, doc, 'meta_keywords')
-        if not content:
-            content = get_goose_content(url, doc, 'cleaned_text')
-        meta_text = ', '.join(c for c in [get_unicode(title), get_unicode(meta_description),
-                                          get_unicode(meta_keywords)] if c)
+        if raw_content and raw_content.strip():
+            try:
+                doc = get_goose_doc(raw_content)
+                title = get_goose_content(url, doc, 'title')
+                meta_description = get_goose_content(url, doc, 'meta_description')
+                meta_keywords = get_goose_content(url, doc, 'meta_keywords')
+                if not content:
+                    content = get_goose_content(url, doc, 'cleaned_text')
+                meta_text = ', '.join(c for c in [get_unicode(title), get_unicode(meta_description),
+                                                  get_unicode(meta_keywords)] if c)
+            except Exception as ex:
+                logger.error('get_goose_doc error: %s' % ex.message)
+                logger.error('Url: %s' % url)
+
     except Exception as ex:
         logger.error('goose extract_page_content error: %s' % ex)
         logger.error('url: %s' % url)
 
     result = ', '.join(c for c in [get_unicode(content), meta_text] if c)
+    logger.debug('End goose_dragnet_extractor: %s' % url)
     return url, result
 
 

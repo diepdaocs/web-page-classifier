@@ -62,6 +62,22 @@ def crawl_pages_and_save_to_db(input_file):
     logger.info('End processing input %s...' % input_file)
 
 
+def label_data(input_file, label):
+    logger.info('Start processing input %s...' % input_file)
+    with open(input_file, 'r') as f:
+        list_url = [re.sub(r'\n', '', u.strip()) for u in f.readlines()]
+
+    params = {
+        'urls': ', '.join(list_url),
+        'type': label
+    }
+    logger.info('Num of url: %s' % len(list_url))
+    response = requests.post('http://159.203.170.25:1999/data/label', data=params)
+    ret = response.json()
+    logger.info('Error: %s' % ret['error'])
+    logger.info('Message: %s' % ret.get('message'))
+
+
 def chunks(l, n):
     """Yield successive n-sized chunks from l."""
     for i in range(0, len(l), n):
@@ -71,8 +87,11 @@ def chunks(l, n):
 def main():
     # crawl_pages('/home/diepdt/data/dmoz/shopping.txt', '/home/diepdt/data/dmoz/shopping1000.json')
     # crawl_pages('/home/diepdt/data/dmoz/news.txt', '/home/diepdt/data/dmoz/news1000.json')
-    crawl_pages_and_save_to_db('/home/diepdt/data/dmoz/shopping.txt')
+    # crawl_pages_and_save_to_db('/home/diepdt/data/dmoz/shopping.txt')
     # crawl_pages_and_save_to_db('/home/diepdt/data/dmoz/news.txt')
+    # label_data('/home/diepdt/data/dmoz/shopping.txt', 'ecommerce')
+    # label_data('/home/diepdt/data/dmoz/news.txt', 'news/blog')
+    pass
 
 
 if __name__ == '__main__':
